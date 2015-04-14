@@ -50,22 +50,25 @@ class BitfountainCourse:
         return 'Invalid email or password.' not in contents
 
     @staticmethod
-    def download_course(course_alias, simulate):
+    def download_course(course_alias, simulate, alternate_url, start_index):
         try:
             course_info = BitfountainCourse.courses[course_alias]
         except:
             print "Error: Bad course Alias"
             return
 
-        course = BitfountainCourse(course_info[0], course_info[1])
-        course.download_all(simulate=simulate)
+        start_url = course_info[1] if alternate_url is None else alternate_url
 
-    def download_all(self, simulate):
+        course = BitfountainCourse(course_info[0], start_url)
+        course.download_all(simulate=simulate, start_index=start_index)
+
+    def download_all(self, simulate, start_index):
         if simulate == False:
-            os.makedirs(self.name)
+            if not os.path.exists(self.name):
+                os.makedirs(self.name)
 
         cur_url = self.start_url
-        video_number = 1
+        video_number = start_index
         while cur_url != None:
             video_found, cur_url = self.crawl(cur_url, video_number, simulate)
             video_number += 1 if video_found == True else 0
@@ -89,20 +92,35 @@ class BitfountainCourse:
 
         print "Downloading %s" % url
         if simulate == False:
-            time_start = time.time()
-            mp4_resp = urllib.urlretrieve(url, filename + '.temp', report_hook)
-            total_time = time.time() - time_start
+            temp_file_name = filename + '.temp'
 
-            dl_rate = (self.dl_total_size / 1024 / 1024) / total_time
+            # remove the temp file if it already exists
+            if os.path.isfile(temp_file_name):
+                os.remove(temp_file_name)
+                while os.path.isfile(temp_file_name):
+                    pass
 
-            os.rename(filename + '.temp', filename)
+            if os.path.isfile(filename):
+                print 'Skipping -- file already present',
+                dl_rate = 0
+                total_time = 0
+            else:
+                time_start = time.time()
+                mp4_resp = urllib.urlretrieve(url, temp_file_name, report_hook)
+                total_time = time.time() - time_start
+
+                dl_rate = (self.dl_total_size / 1024 / 1024) / total_time
+
+                os.rename(temp_file_name, filename)
         else:
             dl_rate = 0
+            total_time = 0
 
         print "\nDownload Complete in %2d seconds (%2.2f MiB/s): %s" % (total_time, dl_rate, filename)
     
     def crawl(self, url, video_number, simulate):
         print '------------------------------BEGIN-----------------------------------'
+        print 'URL: %s' % url
 
         course_page_req = urllib2.Request(url)
         course_page_resp = urllib2.urlopen(course_page_req)
@@ -114,7 +132,7 @@ class BitfountainCourse:
             download_url_tag = soup.find('a', class_="download")
             download_url = download_url_tag['href']
         except:
-            print 'skipping -- no download or next lecture tag!'
+            print 'Skipping -- no download or next lecture tag!'
     
         if download_url != None:
             lecture_heading = soup.find('h2', id='lecture_heading', class_="section-title")
@@ -133,6 +151,8 @@ class BitfountainCourse:
             next_url = next_lecture_tag['href']
             next_url = urlparse.urljoin('http://bitfountain.io/', next_url)
         except:
-            print "no more urls to crawl"
+            print '****************************************************************\n'
+            print "Finished: no more urls to crawl"
+            print '****************************************************************\n'
 
         return (video_found, next_url)
